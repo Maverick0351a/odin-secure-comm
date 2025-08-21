@@ -4,10 +4,23 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "odin-secure-comm"
-version = "0.1.0"
-description = "AI-to-AI secure communication layer"
-authors = [{name = ""}]
+version = "0.1.1"
+description = "AI-to-AI secure communication layer built on the ODIN protocol"
+authors = [{name = "ODIN Protocol", email = "travisjohnson@odinprotocol.dev"}]
 readme = "README.md"
+license = {text = "Apache-2.0"}
+keywords = ["ai", "communication", "cryptography", "receipts", "odin", "protocol"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Internet :: WWW/HTTP :: HTTP Servers",
+    "Topic :: Security :: Cryptography",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
 requires-python = ">=3.11,<3.12"
 
 # Core toolchain pins
@@ -22,3 +35,9 @@ dependencies = [
 	"cryptography>=42.0.0,<43.0.0",
 	"uvicorn>=0.29.0,<0.30.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/Maverick0351a/odin-secure-comm"
+Documentation = "https://docs.odinprotocol.dev"
+Repository = "https://github.com/Maverick0351a/odin-secure-comm.git"
+Issues = "https://github.com/Maverick0351a/odin-secure-comm/issues"

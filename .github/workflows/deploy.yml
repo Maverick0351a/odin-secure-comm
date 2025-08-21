@@ -1,10 +1,115 @@
-name: Deploy
+name: Deploy ODIN to Cloud Run
 
 on:
+  push:
+    branches: [ main ]
   workflow_dispatch:
 
+env:
+  REGISTRY_HOSTNAME: ${{ secrets.GCP_REGION }}-docker.pkg.dev
+  
 jobs:
-  noop:
+  deploy:
     runs-on: ubuntu-latest
+    
+    permissions:
+      contents: read
+      id-token: write
+      
     steps:
-      - run: echo "Deployment workflow placeholder"
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Authenticate to Google Cloud
+      uses: google-github-actions/auth@v2
+      with:
+        workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+        service_account: ${{ secrets.GCP_DEPLOYER_SA }}
+        
+    - name: Setup Cloud SDK
+      uses: google-github-actions/setup-gcloud@v2
+      
+    - name: Configure Docker for Artifact Registry
+      run: |
+        gcloud auth configure-docker ${{ env.REGISTRY_HOSTNAME }} --quiet
+        
+    - name: Build and Push Docker Image
+      run: |
+        IMAGE_TAG="${{ env.REGISTRY_HOSTNAME }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GCP_ARTIFACT_REPO }}/odin-gateway:${{ github.sha }}"
+        
+        echo "Building image: $IMAGE_TAG"
+        docker build -t $IMAGE_TAG -f deploy/Dockerfile .
+        
+        echo "Pushing image to Artifact Registry"
+        docker push $IMAGE_TAG
+        
+        echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+        
+    - name: Deploy to Cloud Run
+      run: |
+        gcloud run deploy ${{ secrets.GCP_SERVICE_NAME }} \
+          --project ${{ secrets.GCP_PROJECT_ID }} \
+          --region ${{ secrets.GCP_REGION }} \
+          --image ${{ env.IMAGE_TAG }} \
+          --allow-unauthenticated \
+          --service-account odin-gateway@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com \
+          --set-env-vars ODIN_STORAGE=firestore,ODIN_MAX_BODY_BYTES=65536 \
+          --set-secrets ODIN_JWKS_PRIV=ODIN_JWKS_PRIV:latest \
+          --cpu 1 \
+          --memory 512Mi \
+          --concurrency 60 \
+          --min-instances 0 \
+          --max-instances 10 \
+          --port 8080 \
+          --quiet
+          
+    - name: Get Service URL and Run Health Checks
+      run: |
+        SERVICE_URL=$(gcloud run services describe ${{ secrets.GCP_SERVICE_NAME }} \
+          --project ${{ secrets.GCP_PROJECT_ID }} \
+          --region ${{ secrets.GCP_REGION }} \
+          --format "value(status.url)")
+          
+        echo "Service deployed to: $SERVICE_URL"
+        echo "SERVICE_URL=$SERVICE_URL" >> $GITHUB_ENV
+        
+        # Wait for service to be ready
+        sleep 30
+        
+        # Health check
+        echo "Checking health endpoint..."
+        curl -f "$SERVICE_URL/health" || exit 1
+        
+        # Discovery check  
+        echo "Checking discovery endpoint..."
+        curl -f "$SERVICE_URL/.well-known/odin/discovery.json" | jq -e '.endpoints.envelope' || exit 1
+        
+        # Envelope test
+        echo "Testing envelope endpoint..."
+        TRACE_ID=$(uuidgen)
+        curl -f -X POST "$SERVICE_URL/v1/envelope" \
+          -H "Content-Type: application/json" \
+          -H "X-ODIN-Trace-Id: $TRACE_ID" \
+          -H "X-ODIN-Payload-CID: bafyDummy" \
+          -d '{"payload":{"test":"github-actions"}}' | jq -e '.receipt.trace_id' || exit 1
+          
+        # Metrics check
+        echo "Checking metrics endpoint..."
+        curl -f "$SERVICE_URL/metrics" | grep -q "odin_http_requests_total" || exit 1
+        
+        echo "All health checks passed!"
+        
+    - name: Deployment Summary
+      run: |
+        echo "## 🚀 Deployment Successful!" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Service URL:** ${{ env.SERVICE_URL }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Image:** ${{ env.IMAGE_TAG }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Region:** ${{ secrets.GCP_REGION }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Quick Test Commands:" >> $GITHUB_STEP_SUMMARY
+        echo '```bash' >> $GITHUB_STEP_SUMMARY
+        echo "curl ${{ env.SERVICE_URL }}/health" >> $GITHUB_STEP_SUMMARY
+        echo "curl ${{ env.SERVICE_URL }}/.well-known/odin/discovery.json" >> $GITHUB_STEP_SUMMARY
+        echo "curl ${{ env.SERVICE_URL }}/metrics" >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
