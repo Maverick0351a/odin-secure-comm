@@ -1,0 +1,36 @@
+### Get an ID token (manual step in terminal)
+# $ TOKEN=$(gcloud auth print-identity-token)
+
+@RUN_URL = https://odin-gateway-583712448463.us-central1.run.app
+@TOKEN = your_id_token_here
+
+### Health (direct to Cloud Run)
+GET {{RUN_URL}}/health
+Authorization: Bearer {{TOKEN}}
+
+### Discovery
+GET {{RUN_URL}}/.well-known/odin/discovery.json
+Authorization: Bearer {{TOKEN}}
+
+### JWKS
+GET {{RUN_URL}}/.well-known/jwks.json
+Authorization: Bearer {{TOKEN}}
+
+### Envelope
+POST {{RUN_URL}}/v1/envelope
+Authorization: Bearer {{TOKEN}}
+Content-Type: application/json
+X-ODIN-Trace-Id: trace-{{$randomInt}}
+X-ODIN-Payload-CID: bafySmoke
+
+{
+  "payload": {"smoke": true}
+}
+
+### Receipt Hops
+GET {{RUN_URL}}/v1/receipts/hops?trace_id=trace-12345
+Authorization: Bearer {{TOKEN}}
+
+### Receipt Chain  
+GET {{RUN_URL}}/v1/receipts/hops/chain/trace-12345
+Authorization: Bearer {{TOKEN}}

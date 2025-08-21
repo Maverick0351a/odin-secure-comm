@@ -1,0 +1,76 @@
+﻿{
+    "policies":  [
+                     {
+                         "booleanPolicy":  {
+                                               "enforced":  true
+                                           },
+                         "constraint":  "constraints/compute.setNewProjectDefaultToZonalDNSOnly",
+                         "etag":  "CK7o-sQGEPjhsY8D",
+                         "updateTime":  "2025-08-15T04:14:38.837579Z"
+                     },
+                     {
+                         "constraint":  "constraints/essentialcontacts.allowedContactDomains",
+                         "etag":  "CK7o-sQGEPCot48D",
+                         "listPolicy":  {
+                                            "allowedValues":  [
+                                                                  "@odinprotocol.dev"
+                                                              ]
+                                        },
+                         "updateTime":  "2025-08-15T04:14:38.837670Z"
+                     },
+                     {
+                         "constraint":  "constraints/iam.allowedPolicyMemberDomains",
+                         "etag":  "CK7o-sQGEICQ-pID",
+                         "listPolicy":  {
+                                            "allowedValues":  [
+                                                                  "C00ps31j0"
+                                                              ]
+                                        },
+                         "updateTime":  "2025-08-15T04:14:38.845056Z"
+                     },
+                     {
+                         "booleanPolicy":  {
+                                               "enforced":  true
+                                           },
+                         "constraint":  "constraints/iam.disableServiceAccountKeyUpload",
+                         "etag":  "CK7o-sQGEKjkq48D",
+                         "updateTime":  "2025-08-15T04:14:38.837481Z"
+                     },
+                     {
+                         "booleanPolicy":  {
+                                               "enforced":  true
+                                           },
+                         "constraint":  "constraints/iam.disableServiceAccountKeyCreation",
+                         "etag":  "CK7o-sQGENDb5pID",
+                         "updateTime":  "2025-08-15T04:14:38.844738Z"
+                     },
+                     {
+                         "booleanPolicy":  {
+                                               "enforced":  true
+                                           },
+                         "constraint":  "constraints/iam.automaticIamGrantsForDefaultServiceAccounts",
+                         "etag":  "CK7o-sQGEKDMpo8D",
+                         "updateTime":  "2025-08-15T04:14:38.837396Z"
+                     },
+                     {
+                         "booleanPolicy":  {
+                                               "enforced":  true
+                                           },
+                         "constraint":  "constraints/storage.uniformBucketLevelAccess",
+                         "etag":  "CK7o-sQGEPD0-owD",
+                         "updateTime":  "2025-08-15T04:14:38.832486Z"
+                     },
+                     {
+                         "constraint":  "constraints/compute.restrictProtocolForwardingCreationForTypes",
+                         "etag":  "CK7o-sQGEODB8YwD",
+                         "listPolicy":  {
+                                            "allowedValues":  [
+                                                                  "INTERNAL"
+                                                              ]
+                                        },
+                         "updateTime":  "2025-08-15T04:14:38.832332Z"
+                     }
+                 ],
+    "timestamp":  "2025-08-21T15:37:48Z",
+    "organization":  "785932421130"
+}

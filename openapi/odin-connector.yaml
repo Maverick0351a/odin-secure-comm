@@ -1,0 +1,604 @@
+openapi: 3.0.3
+info:
+  title: ODIN Protocol - AI-to-AI Secure Communication Layer
+  description: |
+    ODIN (Open Decentralized Identity Network) provides cryptographically secure 
+    messaging between AI agents and systems with Ed25519 signatures, receipt chains, 
+    and comprehensive audit trails.
+    
+    Features:
+    - Ed25519 digital signatures for quantum-resistant security
+    - JWKS integration for standard key management
+    - Immutable receipt chains for audit compliance
+    - RESTful API for easy AI agent integration
+  version: 1.0.0
+  contact:
+    name: ODIN Protocol Support
+    email: support@odinprotocol.dev
+    url: https://odinprotocol.dev
+  license:
+    name: Apache 2.0
+    url: https://github.com/Maverick0351a/odin-secure-comm/blob/main/LICENSE
+
+servers:
+  - url: "{ODIN_BASE_URL}"
+    description: ODIN Gateway Service
+    variables:
+      ODIN_BASE_URL:
+        default: https://odin-gateway-example.run.app
+        description: Base URL of your deployed ODIN Gateway service
+
+security:
+  - BearerAuth: []
+
+paths:
+  /health:
+    get:
+      tags:
+        - Health Check
+      summary: Service health check
+      description: Returns the health status of the ODIN Gateway service
+      operationId: getHealth
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              example:
+                ok: true
+                status: "healthy"
+                timestamp: "2025-08-21T20:30:00Z"
+        '503':
+          description: Service is unhealthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              example:
+                ok: false
+                status: "unhealthy"
+                timestamp: "2025-08-21T20:30:00Z"
+
+  /.well-known/odin/discovery.json:
+    get:
+      tags:
+        - Discovery
+      summary: ODIN protocol discovery
+      description: Returns ODIN protocol configuration and available endpoints
+      operationId: getOdinDiscovery
+      responses:
+        '200':
+          description: ODIN protocol configuration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OdinDiscoveryResponse'
+              example:
+                protocol: "ODIN"
+                version: "1.0.0"
+                issuer: "https://odin-gateway-example.run.app"
+                endpoints:
+                  envelope: "https://odin-gateway-example.run.app/v1/envelope"
+                  receipts: "https://odin-gateway-example.run.app/v1/receipts"
+                  jwks: "https://odin-gateway-example.run.app/.well-known/jwks.json"
+                algorithms:
+                  - "EdDSA"
+                signature_types:
+                  - "Ed25519"
+
+  /.well-known/jwks.json:
+    get:
+      tags:
+        - Keys
+      summary: JSON Web Key Set
+      description: Returns the public keys used for signature verification
+      operationId: getJwks
+      responses:
+        '200':
+          description: JSON Web Key Set
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JwksResponse'
+              example:
+                keys:
+                  - kty: "OKP"
+                    crv: "Ed25519"
+                    use: "sig"
+                    kid: "odin-key-1"
+                    alg: "EdDSA"
+                    x: "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"
+
+  /v1/envelope:
+    post:
+      tags:
+        - Messaging
+      summary: Send signed message envelope
+      description: |
+        Sends a cryptographically signed message envelope through the ODIN network.
+        Returns a receipt for audit and verification purposes.
+      operationId: sendEnvelope
+      parameters:
+        - name: X-ODIN-Trace-Id
+          in: header
+          required: true
+          description: Unique trace identifier for the message
+          schema:
+            type: string
+            format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        - name: X-ODIN-Payload-CID
+          in: header
+          required: true
+          description: Content Identifier (CID) of the payload
+          schema:
+            type: string
+          example: "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EnvelopeRequest'
+            example:
+              recipient: "ai-agent-b"
+              message: "Hello from AI Agent A"
+              signature: "MEUCIQDKj9k..."
+              public_key: "MCowBQYDK2VwAyEA..."
+              timestamp: "2025-08-21T20:30:00Z"
+      responses:
+        '201':
+          description: Message envelope processed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnvelopeResponse'
+              example:
+                ok: true
+                receipt:
+                  receipt_id: "rec_550e8400e29b41d4a716446655440000"
+                  trace_id: "550e8400-e29b-41d4-a716-446655440000"
+                  hop_id: "hop_001"
+                  timestamp: "2025-08-21T20:30:00.123Z"
+                  signature: "MEUCIQDKj9kSignatureExample"
+                  previous_hop: null
+                  payload_hash: "a665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3"
+                  gateway_id: "gateway-us-central1-001"
+                  verification_status: "verified"
+        '400':
+          description: Invalid request or signature verification failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                ok: false
+                error: "Invalid signature"
+                code: "SIGNATURE_VERIFICATION_FAILED"
+        '401':
+          description: Unauthorized - invalid or missing ID token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                ok: false
+                error: "Unauthorized"
+                code: "INVALID_TOKEN"
+
+  /v1/receipts/hops:
+    get:
+      tags:
+        - Receipts
+      summary: Get receipt hops for trace
+      description: Returns all receipt hops for a given trace ID
+      operationId: getReceiptHops
+      parameters:
+        - name: trace_id
+          in: query
+          required: true
+          description: Trace identifier to retrieve hops for
+          schema:
+            type: string
+            format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440000"
+      responses:
+        '200':
+          description: Receipt hops retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReceiptHopsResponse'
+              example:
+                hops:
+                  - hop_id: "hop_001"
+                    timestamp: "2025-08-21T20:30:00.123Z"
+                    gateway_id: "gateway-us-central1-001"
+                    status: "verified"
+                  - hop_id: "hop_002"
+                    timestamp: "2025-08-21T20:30:01.456Z"
+                    gateway_id: "gateway-us-central1-002"
+                    status: "verified"
+                  - hop_id: "hop_003"
+                    timestamp: "2025-08-21T20:30:02.789Z"
+                    gateway_id: "gateway-us-central1-003"
+                    status: "verified"
+                trace_id: "550e8400-e29b-41d4-a716-446655440000"
+                total_hops: 3
+        '404':
+          description: No hops found for the given trace ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                ok: false
+                error: "No hops found for trace ID"
+                code: "TRACE_NOT_FOUND"
+
+  /v1/receipts/hops/chain/{trace_id}:
+    get:
+      tags:
+        - Receipts
+      summary: Get complete receipt chain
+      description: Returns the complete receipt chain for a given trace ID with cryptographic verification
+      operationId: getReceiptChain
+      parameters:
+        - name: trace_id
+          in: path
+          required: true
+          description: Trace identifier to retrieve the receipt chain for
+          schema:
+            type: string
+            format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440000"
+      responses:
+        '200':
+          description: Complete receipt chain retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReceiptChainResponse'
+              example:
+                chain:
+                  - receipt_id: "rec_550e8400e29b41d4a716446655440000"
+                    trace_id: "550e8400-e29b-41d4-a716-446655440000"
+                    hop_id: "hop_001"
+                    timestamp: "2025-08-21T20:30:00.123Z"
+                    signature: "MEUCIQDKj9kSignatureExample1"
+                    previous_hop: null
+                    payload_hash: "a665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3"
+                    gateway_id: "gateway-us-central1-001"
+                    verification_status: "verified"
+                  - receipt_id: "rec_550e8400e29b41d4a716446655440001"
+                    trace_id: "550e8400-e29b-41d4-a716-446655440000"
+                    hop_id: "hop_002"
+                    timestamp: "2025-08-21T20:30:01.456Z"
+                    signature: "MEUCIQDLk0mSignatureExample2"
+                    previous_hop: "hop_001"
+                    payload_hash: "a665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3"
+                    gateway_id: "gateway-us-central1-002"
+                    verification_status: "verified"
+        '404':
+          description: No receipt chain found for the given trace ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                ok: false
+                error: "No receipt chain found for trace ID"
+                code: "CHAIN_NOT_FOUND"
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        OIDC ID token required for all API calls. 
+        Obtain from Google Cloud Identity-Aware Proxy or using gcloud auth print-identity-token.
+
+  schemas:
+    HealthResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+          description: Whether the service is healthy
+        status:
+          type: string
+          enum: [healthy, unhealthy]
+          description: Detailed health status
+        timestamp:
+          type: string
+          format: date-time
+          description: Timestamp of the health check
+      required:
+        - ok
+
+    OdinDiscoveryResponse:
+      type: object
+      properties:
+        protocol:
+          type: string
+          description: Protocol name
+          example: "ODIN"
+        version:
+          type: string
+          description: Protocol version
+          example: "1.0.0"
+        issuer:
+          type: string
+          format: uri
+          description: Base URL of the ODIN service
+        endpoints:
+          type: object
+          properties:
+            envelope:
+              type: string
+              format: uri
+              description: Endpoint for sending message envelopes
+            receipts:
+              type: string
+              format: uri
+              description: Base endpoint for receipt operations
+            jwks:
+              type: string
+              format: uri
+              description: JSON Web Key Set endpoint
+        algorithms:
+          type: array
+          items:
+            type: string
+          description: Supported signature algorithms
+        signature_types:
+          type: array
+          items:
+            type: string
+          description: Supported signature types
+      required:
+        - protocol
+        - version
+        - issuer
+        - endpoints
+
+    JwksResponse:
+      type: object
+      properties:
+        keys:
+          type: array
+          items:
+            $ref: '#/components/schemas/JsonWebKey'
+          description: Array of JSON Web Keys
+      required:
+        - keys
+
+    JsonWebKey:
+      type: object
+      properties:
+        kty:
+          type: string
+          description: Key type
+          example: "OKP"
+        crv:
+          type: string
+          description: Curve name for OKP keys
+          example: "Ed25519"
+        use:
+          type: string
+          description: Key use
+          example: "sig"
+        kid:
+          type: string
+          description: Key identifier
+          example: "odin-key-1"
+        alg:
+          type: string
+          description: Algorithm
+          example: "EdDSA"
+        x:
+          type: string
+          description: The public key value (base64url encoded)
+      required:
+        - kty
+        - kid
+
+    EnvelopeRequest:
+      type: object
+      properties:
+        recipient:
+          type: string
+          description: Identifier of the message recipient
+          example: "ai-agent-b"
+        message:
+          type: string
+          description: The message content
+          example: "Hello from AI Agent A"
+        signature:
+          type: string
+          description: Ed25519 signature of the message (base64 encoded)
+          example: "MEUCIQDKj9k..."
+        public_key:
+          type: string
+          description: Sender's public key (base64 encoded)
+          example: "MCowBQYDK2VwAyEA..."
+        timestamp:
+          type: string
+          format: date-time
+          description: Message timestamp
+          example: "2025-08-21T20:30:00Z"
+      required:
+        - recipient
+        - message
+        - signature
+        - public_key
+        - timestamp
+
+    EnvelopeResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+          description: Whether the operation was successful
+        receipt:
+          $ref: '#/components/schemas/Receipt'
+      required:
+        - ok
+        - receipt
+
+    Receipt:
+      type: object
+      description: Cryptographic receipt for message verification and audit trail
+      properties:
+        receipt_id:
+          type: string
+          pattern: '^rec_[a-f0-9]{32}$'
+          description: Unique identifier for this receipt
+          example: "rec_550e8400e29b41d4a716446655440000"
+        trace_id:
+          type: string
+          format: uuid
+          description: Trace identifier linking related messages
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        hop_id:
+          type: string
+          pattern: '^hop_[0-9]{3}$'
+          description: Unique identifier for this hop in the chain
+          example: "hop_001"
+        timestamp:
+          type: string
+          format: date-time
+          description: Timestamp when the receipt was created
+          example: "2025-08-21T20:30:00.123Z"
+        signature:
+          type: string
+          pattern: '^[A-Za-z0-9+/]+=*$'
+          description: ODIN Gateway Ed25519 signature of the receipt (base64 encoded)
+          example: "MEUCIQDKj9kSignatureExample"
+        previous_hop:
+          type: string
+          nullable: true
+          pattern: '^hop_[0-9]{3}$|^$'
+          description: Previous hop ID in the chain (null for first hop)
+          example: null
+        payload_hash:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+          description: SHA-256 hash of the original message payload
+          example: "a665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3"
+        gateway_id:
+          type: string
+          description: Identifier of the ODIN Gateway that processed this message
+          example: "gateway-us-central1-001"
+        verification_status:
+          type: string
+          enum: ["verified", "pending", "failed"]
+          description: Status of cryptographic verification
+          example: "verified"
+      required:
+        - receipt_id
+        - trace_id
+        - hop_id
+        - timestamp
+        - signature
+        - payload_hash
+        - gateway_id
+        - verification_status
+
+    ReceiptHopsResponse:
+      type: object
+      description: List of receipt hops for a trace identifier
+      properties:
+        hops:
+          type: array
+          items:
+            type: object
+            description: Receipt hop summary information
+            properties:
+              hop_id:
+                type: string
+                pattern: '^hop_[0-9]{3}$'
+                description: Hop identifier
+                example: "hop_001"
+              timestamp:
+                type: string
+                format: date-time
+                description: When this hop was processed
+                example: "2025-08-21T20:30:00.123Z"
+              gateway_id:
+                type: string
+                description: Gateway that processed this hop
+                example: "gateway-us-central1-001"
+              status:
+                type: string
+                enum: ["verified", "pending", "failed"]
+                description: Verification status of this hop
+                example: "verified"
+            required:
+              - hop_id
+              - timestamp
+              - gateway_id
+              - status
+          description: Array of hop information for the trace, ordered chronologically
+        trace_id:
+          type: string
+          format: uuid
+          description: The trace identifier these hops belong to
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        total_hops:
+          type: integer
+          minimum: 0
+          description: Total number of hops in the chain
+          example: 3
+      required:
+        - hops
+        - trace_id
+        - total_hops
+
+    ReceiptChainResponse:
+      type: object
+      properties:
+        chain:
+          type: array
+          items:
+            $ref: '#/components/schemas/Receipt'
+          description: Complete receipt chain ordered chronologically
+      required:
+        - chain
+
+    ErrorResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+          description: Always false for error responses
+          example: false
+        error:
+          type: string
+          description: Human-readable error message
+        code:
+          type: string
+          description: Machine-readable error code
+        details:
+          type: object
+          description: Additional error details
+          additionalProperties: true
+      required:
+        - ok
+        - error
+
+tags:
+  - name: Health Check
+    description: Service health monitoring
+  - name: Discovery
+    description: Protocol discovery and configuration
+  - name: Keys
+    description: Public key management
+  - name: Messaging
+    description: Secure message envelope operations
+  - name: Receipts
+    description: Receipt chain verification and audit

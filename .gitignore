@@ -30,5 +30,13 @@ config.ps1
 Thumbs.db
 .DS_Store
 
+# Terraform
+.terraform/
+.terraform.lock.hcl
+terraform.tfstate
+terraform.tfstate.backup
+terraform.tfvars
+*.tfplan
+
 # Deployment artifacts
 docker-compose.override.yml
