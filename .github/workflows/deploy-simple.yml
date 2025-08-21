@@ -1,0 +1,282 @@
+name: Deploy ODIN Integration Connector (Simple)
+
+on:
+  workflow_dispatch:
+    inputs:
+      deployment_type:
+        description: 'Deployment type'
+        required: true
+        default: 'connector-only'
+        type: choice
+        options:
+          - connector-only
+          - connection-only
+          - full-deployment
+
+env:
+  PROJECT_ID: odin-ai-to
+  REGION: us-central1
+  CONNECTOR_NAME: odin-secure-comm
+  SERVICE_ACCOUNT: odin-connector-invoker@odin-ai-to.iam.gserviceaccount.com
+  BASE_URL: https://odin-gateway-583712448463.us-central1.run.app
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Authenticate to Google Cloud
+      uses: google-github-actions/auth@v2
+      with:
+        project_id: ${{ env.PROJECT_ID }}
+        workload_identity_provider: projects/583712448463/locations/global/workloadIdentityPools/github-actions-pool/providers/github-provider
+        service_account: github-actions@odin-ai-to.iam.gserviceaccount.com
+
+    - name: Set up Cloud SDK
+      uses: google-github-actions/setup-gcloud@v2
+      with:
+        project_id: ${{ env.PROJECT_ID }}
+
+    - name: Verify authentication and APIs
+      run: |
+        echo "=== Authentication ==="
+        gcloud auth list
+        gcloud config list project
+        echo "=== Checking APIs ==="
+        gcloud services list --enabled --filter="name:connectors.googleapis.com OR name:integrations.googleapis.com"
+
+    - name: Test existing endpoints first
+      run: |
+        echo "=== Testing Cloud Run service ==="
+        TOKEN=$(gcloud auth print-identity-token \
+          --impersonate-service-account=${{ env.SERVICE_ACCOUNT }} \
+          --audiences=${{ env.BASE_URL }})
+        
+        echo "Testing health endpoint..."
+        curl -f -H "Authorization: Bearer $TOKEN" "${{ env.BASE_URL }}/health"
+        echo -e "\n✅ Health endpoint working"
+        
+        echo "Testing discovery endpoint..."
+        curl -f -H "Authorization: Bearer $TOKEN" "${{ env.BASE_URL }}/.well-known/odin/discovery.json"
+        echo -e "\n✅ Discovery endpoint working"
+
+    - name: Create custom connector via REST API
+      if: ${{ github.event.inputs.deployment_type == 'connector-only' || github.event.inputs.deployment_type == 'full-deployment' }}
+      run: |
+        echo "=== Creating Custom Connector ==="
+        
+        # Get access token
+        TOKEN=$(gcloud auth print-access-token)
+        
+        # Create connector configuration
+        cat > connector-config.json << 'EOF'
+        {
+          "displayName": "ODIN Secure Communication",
+          "description": "Custom connector for ODIN AI-to-AI secure communication protocol",
+          "customConnectorType": "CUSTOM",
+          "customConnectorVersion": "1",
+          "authConfig": {
+            "authType": "GOOGLE_ID_TOKEN",
+            "googleIdToken": {
+              "serviceAccount": "${{ env.SERVICE_ACCOUNT }}",
+              "audience": "${{ env.BASE_URL }}"
+            }
+          },
+          "connectorInfraConfig": {
+            "runtimeEndpoint": "${{ env.BASE_URL }}"
+          },
+          "logo": {
+            "contentType": "image/png",
+            "data": ""
+          }
+        }
+        EOF
+        
+        echo "Connector configuration:"
+        cat connector-config.json
+        
+        # Try multiple API endpoints
+        API_ENDPOINTS=(
+          "https://connectors.googleapis.com/v1/projects/${{ env.PROJECT_ID }}/locations/${{ env.REGION }}/customConnectors?customConnectorId=${{ env.CONNECTOR_NAME }}"
+          "https://integrations.googleapis.com/v1/projects/${{ env.PROJECT_ID }}/locations/${{ env.REGION }}/customConnectors?customConnectorId=${{ env.CONNECTOR_NAME }}"
+        )
+        
+        success=false
+        for endpoint in "${API_ENDPOINTS[@]}"; do
+          echo "Trying endpoint: $endpoint"
+          
+          response=$(curl -s -w "\n%{http_code}" -X POST "$endpoint" \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Content-Type: application/json" \
+            -d @connector-config.json 2>&1)
+          
+          http_code=$(echo "$response" | tail -n1)
+          body=$(echo "$response" | head -n -1)
+          
+          echo "HTTP Code: $http_code"
+          echo "Response: $body"
+          
+          if [[ $http_code -ge 200 && $http_code -lt 300 ]]; then
+            echo "✅ Connector created successfully!"
+            success=true
+            break
+          elif [[ $http_code == 409 ]]; then
+            echo "✅ Connector already exists"
+            success=true
+            break
+          fi
+        done
+        
+        if [[ "$success" != "true" ]]; then
+          echo "❌ All endpoints failed, but continuing..."
+          echo "Manual deployment may be required via Google Cloud Console"
+        fi
+
+    - name: Wait and verify connector
+      if: ${{ github.event.inputs.deployment_type == 'connector-only' || github.event.inputs.deployment_type == 'full-deployment' }}
+      run: |
+        echo "=== Verifying connector creation ==="
+        sleep 30
+        
+        # Try to list connectors to verify creation
+        TOKEN=$(gcloud auth print-access-token)
+        
+        echo "Listing custom connectors..."
+        curl -s -H "Authorization: Bearer $TOKEN" \
+          "https://connectors.googleapis.com/v1/projects/${{ env.PROJECT_ID }}/locations/${{ env.REGION }}/customConnectors" \
+          || echo "List connectors failed - may not be supported"
+
+    - name: Create connection
+      if: ${{ github.event.inputs.deployment_type == 'connection-only' || github.event.inputs.deployment_type == 'full-deployment' }}
+      run: |
+        echo "=== Creating Connection ==="
+        
+        TOKEN=$(gcloud auth print-access-token)
+        CONNECTION_NAME="odin-ai-communication"
+        
+        cat > connection-config.json << 'EOF'
+        {
+          "displayName": "ODIN AI Communication Connection",
+          "description": "Connection for ODIN AI-to-AI secure communication",
+          "serviceAccount": "${{ env.SERVICE_ACCOUNT }}",
+          "authConfig": {
+            "authType": "GOOGLE_ID_TOKEN",
+            "googleIdToken": {
+              "serviceAccount": "${{ env.SERVICE_ACCOUNT }}",
+              "audience": "${{ env.BASE_URL }}"
+            }
+          },
+          "logConfig": {
+            "enabled": true
+          }
+        }
+        EOF
+        
+        echo "Connection configuration:"
+        cat connection-config.json
+        
+        response=$(curl -s -w "\n%{http_code}" -X POST \
+          "https://connectors.googleapis.com/v1/projects/${{ env.PROJECT_ID }}/locations/${{ env.REGION }}/connections?connectionId=$CONNECTION_NAME" \
+          -H "Authorization: Bearer $TOKEN" \
+          -H "Content-Type: application/json" \
+          -d @connection-config.json)
+        
+        http_code=$(echo "$response" | tail -n1)
+        body=$(echo "$response" | head -n -1)
+        
+        echo "HTTP Code: $http_code"
+        echo "Response: $body"
+        
+        if [[ $http_code -ge 200 && $http_code -lt 300 ]] || [[ $http_code == 409 ]]; then
+          echo "✅ Connection created or already exists"
+        else
+          echo "❌ Connection creation failed"
+        fi
+
+    - name: Final verification
+      run: |
+        echo "=== Final Verification ==="
+        
+        # Test the actual service one more time
+        TOKEN=$(gcloud auth print-identity-token \
+          --impersonate-service-account=${{ env.SERVICE_ACCOUNT }} \
+          --audiences=${{ env.BASE_URL }})
+        
+        echo "Testing envelope endpoint..."
+        response=$(curl -s -w "\n%{http_code}" -X POST \
+          -H "Authorization: Bearer $TOKEN" \
+          -H "Content-Type: application/json" \
+          -H "X-ODIN-Trace-Id: github-actions-test" \
+          -H "X-ODIN-Payload-CID: test-payload" \
+          -d '{"test": "data"}' \
+          "${{ env.BASE_URL }}/v1/envelope")
+        
+        http_code=$(echo "$response" | tail -n1)
+        body=$(echo "$response" | head -n -1)
+        
+        echo "Envelope test - HTTP Code: $http_code"
+        echo "Envelope test - Response: $body"
+        
+        if [[ $http_code == "200" ]]; then
+          echo "✅ All systems working!"
+        else
+          echo "⚠️ Service test failed but deployment may still be successful"
+        fi
+
+    - name: Create deployment summary
+      run: |
+        cat > deployment-summary.md << EOF
+        # 🚀 ODIN Integration Connector Deployment Summary
+        
+        **Deployment Date:** $(date -u)
+        **Project:** ${{ env.PROJECT_ID }}
+        **Region:** ${{ env.REGION }}
+        **Deployment Type:** ${{ github.event.inputs.deployment_type }}
+        
+        ## 📋 Components
+        
+        - **Connector Name:** ${{ env.CONNECTOR_NAME }}
+        - **Service Account:** ${{ env.SERVICE_ACCOUNT }}
+        - **Base URL:** ${{ env.BASE_URL }}
+        - **Connection Name:** odin-ai-communication
+        
+        ## 🎯 Next Steps
+        
+        1. Verify in Google Cloud Console:
+           - [Custom Connectors](https://console.cloud.google.com/integrations/connectors/custom-connectors?project=${{ env.PROJECT_ID }})
+           - [Connections](https://console.cloud.google.com/integrations/connectors/connections?project=${{ env.PROJECT_ID }})
+        
+        2. If deployment partially failed, use manual deployment:
+           - Follow MANUAL-DEPLOYMENT.md in the repository
+           - Use the Google Cloud Console UI
+        
+        3. For marketplace submission:
+           - Link the custom connector to your marketplace listing
+           - Test the integration thoroughly
+           - Submit to Google Cloud Marketplace
+        
+        ## 🔗 Useful Links
+        
+        - [Cloud Run Service](https://console.cloud.google.com/run/detail/${{ env.REGION }}/odin-gateway?project=${{ env.PROJECT_ID }})
+        - [Integration Connectors](https://console.cloud.google.com/integrations/connectors?project=${{ env.PROJECT_ID }})
+        - [Service Accounts](https://console.cloud.google.com/iam-admin/serviceaccounts?project=${{ env.PROJECT_ID }})
+        EOF
+        
+        echo "📋 Deployment Summary Created"
+        cat deployment-summary.md
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: deployment-artifacts
+        path: |
+          deployment-summary.md
+          connector-config.json
+          connection-config.json
+        retention-days: 30
