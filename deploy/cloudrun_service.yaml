@@ -1,0 +1,14 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: odin-secure-comm
+spec:
+  template:
+    spec:
+      containers:
+        - image: gcr.io/PROJECT_ID/odin-secure-comm:latest
+          env:
+            - name: PORT
+              value: "8080"
+          ports:
+            - containerPort: 8080
